@@ -1,0 +1,78 @@
+id: e5edad82-66a6-4a9b-b079-2c989c69f01f
+name: linkdrop-setup
+description: >
+  Expose the LinkDrop webhook at linkdrop.<zone> through Caddy.
+
+  The workflow adds or updates the reverse-proxy route, lets Caddy add the TLS
+  subject and A record for a name under the Caddy model's baseDomain, applies
+  the DNS records, then checks Caddy's health. DNS propagation and ACME
+  certificate issuance happen asynchronously after the run.
+tags:
+  linkdrop: "setup"
+inputs:
+  properties:
+    dnsName:
+      type: string
+      description: >
+        Full hostname for the webhook, e.g. linkdrop.fi.gy. It must be under the
+        Caddy model's baseDomain for automatic TLS/DNS.
+    caddyModel:
+      type: string
+      default: caddy
+      description: Name of the @svendowideit/caddy model that owns DNS and TLS.
+    upstream:
+      type: string
+      default: "127.0.0.1:9090"
+      description: The swamp serve host:port that receives /hooks/linkdrop.
+  required:
+    - dnsName
+jobs:
+  - name: expose
+    description: Add the route, apply DNS records, and check Caddy health.
+    steps:
+      - name: route
+        description: >
+          Add or update the reverse-proxy route. Under baseDomain, Caddy also
+          adds the TLS subject and an A record to its desired DNS state.
+        task:
+          type: model_method
+          modelType: "@svendowideit/caddy"
+          modelName: "${{ inputs.caddyModel }}"
+          methodName: ensureDnsProxy
+          inputs:
+            hostname: "${{ inputs.dnsName }}"
+            upstream: "${{ inputs.upstream }}"
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+
+      - name: dns
+        description: Reconcile the desired A/AAAA/CNAME records through Caddy.
+        task:
+          type: model_method
+          modelType: "@svendowideit/caddy"
+          modelName: "${{ inputs.caddyModel }}"
+          methodName: applyDnsRecords
+        dependsOn:
+          - step: route
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: health
+        description: Verify Caddy's service and admin API are healthy.
+        task:
+          type: model_method
+          modelType: "@svendowideit/caddy"
+          modelName: "${{ inputs.caddyModel }}"
+          methodName: checkHealth
+        dependsOn:
+          - step: dns
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1

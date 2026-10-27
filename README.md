@@ -79,6 +79,32 @@ adb devices
    try again.
 5. Install and open **LinkDrop**.
 
+#### Option B2 — download from a local HTTP server
+
+If the phone and computer are on the same Wi-Fi, serve the APK directly from
+the build directory:
+
+```sh
+# Run this in the repo root, on the computer that has dist/linkdrop.apk.
+python3 -m http.server -d dist/ 9876
+```
+
+Find the computer's LAN address (`hostname -I` on Linux, `ipconfig getifaddr
+en0` on macOS, or look at the network settings), then open this on the phone:
+
+```
+http://<computer-ip>:9876/linkdrop.apk
+```
+
+Download the file and open it from the phone's Downloads/Files app. Allow
+**Install unknown apps** for the browser or file manager if prompted (and
+**Allow restricted settings** on Android 13+). Stop the server with `Ctrl+C`
+when done.
+
+The Python server has no authentication and exposes `dist/` to every device
+that can reach port 9876. Only run it on a trusted network, and stop it after
+the install.
+
 #### Option C — wireless debugging (Android 11+)
 
 On the device: **Developer options → Wireless debugging → Pair device with
@@ -95,8 +121,10 @@ adb install -r dist/linkdrop.apk
 Open **LinkDrop** once:
 
 1. The **Receiver URL** is prefilled with the compiled-in default.
-2. If your receiver needs a token, paste it into **Webhook token** (sent as
-   `X-Webhook-Token`).
+2. Paste the receiver's HMAC secret into **Webhook token**. This is the same
+   value as `LINKDROP_TOKEN` in the receiver's environment. The app signs each
+   request and sends the lowercase hex HMAC-SHA256 digest in
+   `X-Webhook-Token`; the bundled `swamp serve` webhook requires it.
 3. Tap **Save**.
 4. Tap **Test** to send a test share and see the receiver's HTTP status.
 
@@ -125,7 +153,7 @@ POST /hooks/linkdrop HTTP/1.1
 Host: linkdrop.fi.gy
 Content-Type: application/json
 User-Agent: LinkDrop/1.0 (Android)
-X-Webhook-Token: <optional token>
+X-Webhook-Token: <hex HMAC-SHA256 of body>
 X-LinkDrop-Principal: <stable per-app/profile id>
 Idempotency-Key: <share UUID>
 
@@ -141,24 +169,41 @@ Idempotency-Key: <share UUID>
 }
 ```
 
+`X-Webhook-Token` is not a static bearer token. It is the lowercase hex
+HMAC-SHA256 of the exact request body, keyed by the token saved in the app. The
+bundled `swamp serve` `generic` scheme verifies this signature.
+
+To test a receiver by hand:
+
+```sh
+BODY='{"id":"manual-1","url":"https://example.com/manual","principal":"test"}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$LINKDROP_TOKEN" -r | cut -d' ' -f1)
+curl -X POST "https://linkdrop.fi.gy/hooks/linkdrop" \
+  -H 'Content-Type: application/json' \
+  -H "X-Webhook-Token: $SIG" \
+  -H 'X-LinkDrop-Principal: test' \
+  -d "$BODY"
+```
+
 - Any `2xx` marks the share as sent.
 - `4xx` (except `408` and `429`) marks it failed and stops retrying.
 - `5xx`, `408`, `429`, DNS, TLS, and connection errors retry with exponential
   backoff.
 - `Idempotency-Key` is the share UUID, so the receiver can dedupe retries.
 
-A minimal swamp receiver:
+A minimal swamp receiver lives in [`swamp/`](swamp/): the
+`@svendowideit/linkdrop` behavior, `linkdrop-setup` (Caddy DNS/TLS),
+`capture-linkdrop` (webhook → SQLite), and `serve.yaml`.
 
 ```sh
+cd swamp
 export LINKDROP_TOKEN="$(openssl rand -hex 32)"
-
-swamp serve \
-  --webhook '/hooks/linkdrop:capture-linkdrop:@env=LINKDROP_TOKEN:generic:x-webhook-token'
+swamp serve --config serve.yaml
 ```
 
-Put `https://linkdrop.<zone>/hooks/linkdrop` in the app, and configure the
-`capture-linkdrop` workflow to store the link and fan out to the user's
-webhooks.
+Put `https://linkdrop.<zone>/hooks/linkdrop` in the app. See
+[`swamp/README.md`](swamp/README.md) for the Caddy setup and SQLite inspection
+commands.
 
 ---
 
@@ -191,8 +236,8 @@ ShareActivity (transparent)
 ## Security
 
 - The app only sends over HTTPS. Cleartext traffic is disabled.
-- The token is stored in app-private storage, encrypted with an Android Keystore
-  key. `android:allowBackup="false"`.
+- The HMAC secret is stored in app-private storage, encrypted with an Android
+  Keystore key. `android:allowBackup="false"`.
 - The receiver URL and token are not sent anywhere except the configured
   receiver.
 - This is a personal sideloaded app, not a multi-tenant product. Use a

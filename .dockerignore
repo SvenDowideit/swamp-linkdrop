@@ -1,0 +1,12 @@
+.git
+.gradle
+.gradle-cache
+.idea
+app/build
+build
+dist
+keystore
+keystore.properties
+*.iml
+*.jks
+*.keystore

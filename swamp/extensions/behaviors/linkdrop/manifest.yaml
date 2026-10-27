@@ -1,0 +1,86 @@
+manifestVersion: 1
+name: "@svendowideit/linkdrop"
+version: "2026.10.27.1"
+description: >
+  Durable SQLite inbox for URLs shared by the LinkDrop Android app.
+
+  WHAT IT DOES
+
+    Receives the JSON body from the LinkDrop Android share app and stores each
+    URL in a local SQLite database. The Android app only needs one endpoint;
+    this behavior is the durable inbox behind it, idempotent by share UUID, so
+    app retries do not create duplicate rows. It is independent of swamp data
+    retention and can be queried with any SQLite tool, while the repository's
+    `linkdrop-setup` workflow creates the Caddy DNS/TLS route for the existing
+    `swamp serve` webhook.
+
+  INSTALL
+
+      swamp extension pull @svendowideit/linkdrop
+
+    The behavior is one pull. The `linkdrop-setup` and `capture-linkdrop`
+    workflows live in this repository's `workflows/` directory and are run from
+    the repo; pulling the behavior alone does not install them.
+
+  DEPENDENCIES
+
+    None at runtime. The `linkdrop-setup` workflow uses
+    @svendowideit/caddy for DNS/TLS and assumes `swamp serve` is already
+    configured with the `/hooks/linkdrop` webhook route.
+
+  RUN
+
+      # Store one share manually; the webhook workflow does this automatically.
+      swamp model @svendowideit/linkdrop method run store linkdrop \
+        --input url="https://example.com/article"
+
+      # Inspect the newest rows and the total count.
+      swamp model @svendowideit/linkdrop method run list linkdrop
+      swamp model @svendowideit/linkdrop method run stats linkdrop
+
+      # From this repository's workflows: create the DNS A record and TLS route.
+      swamp workflow run linkdrop-setup --input dnsName=linkdrop.fi.gy
+
+  CONFIGURE
+
+    Global argument `dbPath` controls the SQLite file. Empty uses
+    `$SWAMP_HOME/linkdrop/links.db` (falling back to
+    `~/.swamp/linkdrop/links.db`). Set it at model creation or edit an existing
+    definition:
+
+      # Point the inbox at a specific SQLite file.
+      swamp model create @svendowideit/linkdrop linkdrop \
+        --global-arg dbPath=~/.swamp/linkdrop/links.db
+
+  UPGRADE
+
+    This behavior installs nothing on the host. Update the pulled extension with
+    `swamp extension update @svendowideit/linkdrop`; the SQLite file is
+    untouched.
+
+  WHAT IT INSTALLS
+
+    Nothing on the host: no services, cron triggers, daemons, or webhooks. It
+    writes a SQLite database and swamp resources. The repository's
+    `linkdrop-setup` workflow creates a Caddy route and DNS/TLS entry for the
+    existing swamp serve webhook; `capture-linkdrop` is the workflow that
+    webhook runs.
+
+repository: https://github.com/svendowideit/linkdrop
+
+license: MIT
+
+paths:
+  base: manifest
+
+behaviors:
+  - linkdrop.ts
+
+
+additionalFiles:
+  - README.md
+  - LICENSE.txt
+  - linkdrop_test.ts
+  - serve.yaml.example
+
+platforms: []

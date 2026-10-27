@@ -107,6 +107,7 @@ class SettingsActivity : Activity() {
             val result = Http.post(
                 endpoint = target,
                 token = targetToken,
+                principal = principal,
                 idempotencyKey = UUID.randomUUID().toString(),
                 json = payload,
             )

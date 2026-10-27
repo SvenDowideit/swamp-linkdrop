@@ -13,9 +13,12 @@ object Http {
     fun post(
         endpoint: String,
         token: String,
+        principal: String,
         idempotencyKey: String,
         json: String,
     ): HttpResult {
+        val body = json.toByteArray(Charsets.UTF_8)
+        val signature = Hmac.sha256Hex(body, token)
         var connection: HttpURLConnection? = null
         return try {
             val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
@@ -28,14 +31,15 @@ object Http {
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("User-Agent", "LinkDrop/1.0 (Android)")
                 setRequestProperty("Idempotency-Key", idempotencyKey)
-                if (token.isNotBlank()) {
-                    setRequestProperty("X-Webhook-Token", token)
+                setRequestProperty("X-LinkDrop-Principal", principal)
+                if (signature.isNotBlank()) {
+                    setRequestProperty("X-Webhook-Token", signature)
                 }
             }
             connection = conn
 
             conn.outputStream.use { output ->
-                output.write(json.toByteArray(Charsets.UTF_8))
+                output.write(body)
             }
 
             val code = conn.responseCode

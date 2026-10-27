@@ -1,0 +1,53 @@
+{
+  "@svendowideit/caddy": {
+    "version": "2026.10.18.3",
+    "pulledAt": "2026-10-27T07:45:27.724Z",
+    "files": [
+      ".swamp/bundles/10d5bd78/caddy.js",
+      ".swamp/pulled-extensions/@svendowideit/caddy/files/LICENSE.txt",
+      ".swamp/pulled-extensions/@svendowideit/caddy/files/README.md",
+      ".swamp/pulled-extensions/@svendowideit/caddy/files/caddy_report_test.ts",
+      ".swamp/pulled-extensions/@svendowideit/caddy/files/caddy_test.ts",
+      ".swamp/pulled-extensions/@svendowideit/caddy/files/test-factory.yaml",
+      ".swamp/pulled-extensions/@svendowideit/caddy/files/test/bind/Dockerfile.txt",
+      ".swamp/pulled-extensions/@svendowideit/caddy/files/test/bind/db.example.com.txt",
+      ".swamp/pulled-extensions/@svendowideit/caddy/files/test/bind/named.conf.txt",
+      ".swamp/pulled-extensions/@svendowideit/caddy/files/test/bind/tsig.key.txt",
+      ".swamp/pulled-extensions/@svendowideit/caddy/manifest.yaml",
+      ".swamp/pulled-extensions/@svendowideit/caddy/models/caddy.ts",
+      ".swamp/pulled-extensions/@svendowideit/caddy/reports/caddy_report.ts",
+      ".swamp/pulled-extensions/@svendowideit/caddy/workflows/caddy-setup.yaml",
+      ".swamp/pulled-extensions/@svendowideit/caddy/workflows/caddy-upgrade.yaml",
+      ".swamp/report-bundles/a1a9577d/caddy_report.js"
+    ],
+    "checksum": "d28786c55daa865acde2b008284f2d169028ba952b0217c729c0cf2f1f336bed",
+    "filesChecksum": "285c348424a06b96a0294b1fddabaf047893a43e333e1861dc9a066be780b51a",
+    "serverUrl": "https://swamp-club.com",
+    "publishedChannel": "stable"
+  },
+  "@svendowideit/sudo": {
+    "version": "2026.10.11.1",
+    "pulledAt": "2026-10-27T07:45:29.729Z",
+    "files": [
+      ".swamp/bundles/624dc5fa/sudo.js",
+      ".swamp/bundles/624dc5fa/sudo_operations.js",
+      ".swamp/bundles/624dc5fa/sudo_strategies.js",
+      ".swamp/pulled-extensions/@svendowideit/sudo/files/LICENSE.txt",
+      ".swamp/pulled-extensions/@svendowideit/sudo/files/README.md",
+      ".swamp/pulled-extensions/@svendowideit/sudo/files/sudo_operations_test.ts",
+      ".swamp/pulled-extensions/@svendowideit/sudo/files/sudo_strategies_test.ts",
+      ".swamp/pulled-extensions/@svendowideit/sudo/files/sudo_test.ts",
+      ".swamp/pulled-extensions/@svendowideit/sudo/files/test-factory.yaml",
+      ".swamp/pulled-extensions/@svendowideit/sudo/manifest.yaml",
+      ".swamp/pulled-extensions/@svendowideit/sudo/models/sudo.ts",
+      ".swamp/pulled-extensions/@svendowideit/sudo/models/sudo_operations.ts",
+      ".swamp/pulled-extensions/@svendowideit/sudo/models/sudo_strategies.ts",
+      ".swamp/pulled-extensions/@svendowideit/sudo/workflows/sudo-command.yaml",
+      ".swamp/pulled-extensions/@svendowideit/sudo/workflows/sudo-run.yaml"
+    ],
+    "checksum": "f1de4839c6b678d38cb625370132a06f76fc5faed173198625b90d149ad50503",
+    "filesChecksum": "837e64a4d4dc523138a93cf97cff4559ce357a5b927d8bb550a627d66d675767",
+    "serverUrl": "https://swamp-club.com",
+    "publishedChannel": "stable"
+  }
+}
