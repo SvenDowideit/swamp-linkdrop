@@ -4,9 +4,9 @@ The receiver side of LinkDrop: a swamp behavior that stores shared URLs in
 SQLite, plus the workflows that expose and handle the webhook.
 
 - Behavior: `@svendowideit/linkdrop`
-  (`extensions/behaviors/linkdrop/`)
-- Webhook workflow: `capture-linkdrop` (`workflows/workflow-capture-linkdrop.yaml`)
-- DNS/TLS workflow: `linkdrop-setup` (`workflows/workflow-linkdrop-setup.yaml`)
+  (`extensions/models/linkdrop/`)
+- Webhook workflow: `@svendowideit/capture-linkdrop` (`workflows/workflow-capture-linkdrop.yaml`)
+- DNS/TLS workflow: `@svendowideit/linkdrop-setup` (`workflows/workflow-linkdrop-setup.yaml`)
 - Serve config: `serve.yaml`
 
 ## Prerequisites
@@ -23,7 +23,7 @@ SQLite, plus the workflows that expose and handle the webhook.
 
 ```sh
 # Replace linkdrop.fi.gy with your zone. The name must be under baseDomain.
-swamp workflow run linkdrop-setup --input dnsName=linkdrop.fi.gy
+swamp workflow run @svendowideit/linkdrop-setup --input dnsName=linkdrop.fi.gy
 ```
 
 The workflow calls Caddy `ensureDnsProxy` (route + TLS subject + desired A
@@ -32,7 +32,7 @@ issuance are asynchronous; verify the live endpoint after they settle.
 
 ### Validation vs a live run
 
-`swamp workflow validate linkdrop-setup` only checks the workflow schema and the
+`swamp workflow validate @svendowideit/linkdrop-setup` only checks the workflow schema and the
 step inputs against the installed `@svendowideit/caddy` type. It does not call
 Caddy, write DNS, or issue a certificate.
 
@@ -41,7 +41,7 @@ run needs a configured `@svendowideit/caddy` model that owns the target zone
 (`baseDomain`, DNS provider, ACME email, etc.):
 
 ```sh
-swamp workflow run linkdrop-setup \
+swamp workflow run @svendowideit/linkdrop-setup \
   --input dnsName=linkdrop.fi.gy \
   --input caddyModel=my-caddy
 ```
@@ -71,7 +71,7 @@ curl -X POST http://127.0.0.1:9090/hooks/linkdrop \
   -d "$BODY"
 ```
 
-A verified request runs `capture-linkdrop`, which calls
+A verified request runs `@svendowideit/capture-linkdrop`, which calls
 `@svendowideit/linkdrop store` and inserts one row into SQLite. The insert is
 idempotent by the app's share UUID.
 
@@ -95,7 +95,26 @@ sqlite3 ~/.swamp/linkdrop/links.db \
 ## Verify
 
 ```sh
-~/.swamp/deno/deno test -A extensions/behaviors/linkdrop/linkdrop_test.ts
-swamp workflow validate linkdrop-setup
-swamp workflow validate capture-linkdrop
+~/.swamp/deno/deno test -A extensions/models/linkdrop/linkdrop_test.ts
+swamp workflow validate @svendowideit/linkdrop-setup
+swamp workflow validate @svendowideit/capture-linkdrop
+```
+
+## Publish
+
+The adversarial review report for the current extension content is stored in
+`.reviews/`. Push with the repository-bound review directory:
+
+```sh
+./scripts/push-linkdrop.sh
+./scripts/push-linkdrop.sh --dry-run   # check without publishing
+```
+
+The extension version is `2026.10.27.2`; it bundles
+`@svendowideit/linkdrop-setup` and `@svendowideit/capture-linkdrop` and depends
+on `@svendowideit/caddy`. After pushing, consumers run:
+
+```sh
+swamp extension update @svendowideit/linkdrop
+swamp workflow run @svendowideit/linkdrop-setup --input dnsName=linkdrop.fi.gy
 ```

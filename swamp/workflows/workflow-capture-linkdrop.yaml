@@ -1,5 +1,5 @@
 id: afa8765e-74db-4910-ad8d-e8cff766026a
-name: capture-linkdrop
+name: "@svendowideit/capture-linkdrop"
 description: >
   Receive one LinkDrop share from the swamp serve webhook and store it in
   SQLite. The trigger maps the verified webhook body onto named inputs; the
@@ -58,9 +58,9 @@ jobs:
       - name: store
         description: Idempotently insert the share by id.
         task:
-          type: behavior
-          behaviorType: "@svendowideit/linkdrop"
-          behaviorName: linkdrop
+          type: model_method
+          modelType: "@svendowideit/linkdrop"
+          modelName: linkdrop
           methodName: store
           inputs:
             id: "${{ inputs.id }}"

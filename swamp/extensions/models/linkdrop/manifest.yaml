@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@svendowideit/linkdrop"
-version: "2026.10.27.1"
+version: "2026.10.27.2"
 description: >
   Durable SQLite inbox for URLs shared by the LinkDrop Android app.
 
@@ -10,23 +10,26 @@ description: >
     URL in a local SQLite database. The Android app only needs one endpoint;
     this behavior is the durable inbox behind it, idempotent by share UUID, so
     app retries do not create duplicate rows. It is independent of swamp data
-    retention and can be queried with any SQLite tool, while the repository's
-    `linkdrop-setup` workflow creates the Caddy DNS/TLS route for the existing
-    `swamp serve` webhook.
+    retention and can be queried with any SQLite tool, while the bundled
+    `@svendowideit/linkdrop-setup` workflow creates the Caddy DNS/TLS route for
+    the existing `swamp serve` webhook.
 
   INSTALL
 
       swamp extension pull @svendowideit/linkdrop
 
-    The behavior is one pull. The `linkdrop-setup` and `capture-linkdrop`
-    workflows live in this repository's `workflows/` directory and are run from
-    the repo; pulling the behavior alone does not install them.
+    One pull installs the behavior and both bundled workflows:
+    `@svendowideit/linkdrop-setup` (Caddy DNS/TLS) and
+    `@svendowideit/capture-linkdrop` (webhook handler).
 
   DEPENDENCIES
 
-    None at runtime. The `linkdrop-setup` workflow uses
-    @svendowideit/caddy for DNS/TLS and assumes `swamp serve` is already
-    configured with the `/hooks/linkdrop` webhook route.
+    The bundled `@svendowideit/linkdrop-setup` workflow requires
+    @svendowideit/caddy (pulled automatically as a dependency) and assumes
+    `swamp serve` is already configured with the `/hooks/linkdrop` webhook
+    route. Pulling the dependency installs the type, not a configured Caddy
+    model: create/configure one and pass `--input caddyModel=<its-name>` if it
+    is not named `caddy`. The SQLite behavior itself has no runtime dependency.
 
   RUN
 
@@ -38,8 +41,10 @@ description: >
       swamp model @svendowideit/linkdrop method run list linkdrop
       swamp model @svendowideit/linkdrop method run stats linkdrop
 
-      # From this repository's workflows: create the DNS A record and TLS route.
-      swamp workflow run linkdrop-setup --input dnsName=linkdrop.fi.gy
+      # Create the DNS A record and TLS route through the bundled workflow.
+      # If your Caddy model is not named `caddy`, add --input caddyModel=<name>.
+      swamp workflow run @svendowideit/linkdrop-setup \
+        --input dnsName=linkdrop.example.com
 
   CONFIGURE
 
@@ -61,10 +66,10 @@ description: >
   WHAT IT INSTALLS
 
     Nothing on the host: no services, cron triggers, daemons, or webhooks. It
-    writes a SQLite database and swamp resources. The repository's
-    `linkdrop-setup` workflow creates a Caddy route and DNS/TLS entry for the
-    existing swamp serve webhook; `capture-linkdrop` is the workflow that
-    webhook runs.
+    writes a SQLite database and swamp resources. It ships two workflows:
+    `@svendowideit/linkdrop-setup` creates a Caddy route and DNS/TLS entry for
+    the existing swamp serve webhook, and `@svendowideit/capture-linkdrop` is
+    the workflow that webhook runs. It installs no services or cron triggers.
 
 repository: https://github.com/svendowideit/linkdrop
 
@@ -73,14 +78,21 @@ license: MIT
 paths:
   base: manifest
 
-behaviors:
+models:
   - linkdrop.ts
 
+workflows:
+  - linkdrop-setup.yaml
+  - capture-linkdrop.yaml
+
+
+dependencies:
+  - "@svendowideit/caddy"
 
 additionalFiles:
   - README.md
   - LICENSE.txt
   - linkdrop_test.ts
-  - serve.yaml.example
+  - serve.example.yaml
 
 platforms: []

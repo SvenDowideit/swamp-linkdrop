@@ -1,5 +1,5 @@
 id: e5edad82-66a6-4a9b-b079-2c989c69f01f
-name: linkdrop-setup
+name: "@svendowideit/linkdrop-setup"
 description: >
   Expose the LinkDrop webhook at linkdrop.<zone> through Caddy.
 

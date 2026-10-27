@@ -89,6 +89,14 @@ const LinkRowSchema = z.object({
   received_at: z.string(),
 });
 
+/** The result of `list`. */
+const LinkListSchema = z.object({
+  dbPath: z.string(),
+  count: z.number(),
+  truncated: z.boolean(),
+  links: z.array(LinkRowSchema),
+});
+
 /** Counts returned by `stats`. */
 const StatsSchema = z.object({
   total: z.number(),
@@ -163,9 +171,13 @@ export async function openDatabase(dbPath: string): Promise<DatabaseSync> {
 
 /** Insert one share and write the `link` resource. */
 async function executeStore(args: StoreArgs, ctx: MethodContext) {
+  if (!/^https?:\/\//i.test(args.url)) {
+    throw new Error("url must start with http:// or https://");
+  }
   const dbPath = resolveDbPath(ctx.globalArgs);
   const id = args.id.trim() || crypto.randomUUID();
   const receivedAt = args.receivedAt.trim() || new Date().toISOString();
+  ctx.logger?.info("Storing share {id} in {dbPath}", { id, dbPath });
   const db = await openDatabase(dbPath);
 
   try {
@@ -214,6 +226,10 @@ async function executeStore(args: StoreArgs, ctx: MethodContext) {
 /** List recent rows and write the `links` resource. */
 async function executeList(args: ListArgs, ctx: MethodContext) {
   const dbPath = resolveDbPath(ctx.globalArgs);
+  ctx.logger?.info("Listing up to {limit} shares from {dbPath}", {
+    limit: args.limit,
+    dbPath,
+  });
   const db = await openDatabase(dbPath);
 
   try {
@@ -223,12 +239,23 @@ async function executeList(args: ListArgs, ctx: MethodContext) {
       FROM links
       ORDER BY received_at DESC
       LIMIT ?
-    `).all(args.limit).map((row) => LinkRowSchema.parse(row));
-    const handle = await ctx.writeResource("links", `links-${Date.now()}`, {
-      dbPath,
-      count: rows.length,
-      links: rows,
-    });
+    `).all(args.limit + 1).map((row) => LinkRowSchema.parse(row));
+    const truncated = rows.length > args.limit;
+    const links = truncated ? rows.slice(0, args.limit) : rows;
+    const handle = await ctx.writeResource(
+      "links",
+      `links-${crypto.randomUUID()}`,
+      {
+        dbPath,
+        count: links.length,
+        truncated,
+        links,
+      },
+    );
+    ctx.logger?.info(
+      "Listed {count} shares from {dbPath} (truncated={truncated})",
+      { count: links.length, dbPath, truncated },
+    );
     return { dataHandles: [handle] };
   } finally {
     db.close();
@@ -236,8 +263,12 @@ async function executeList(args: ListArgs, ctx: MethodContext) {
 }
 
 /** Count stored rows and write the `stats` resource. */
-async function executeStats(_args: Record<string, never>, ctx: MethodContext) {
+async function executeStats(
+  _args: Record<string, unknown>,
+  ctx: MethodContext,
+) {
   const dbPath = resolveDbPath(ctx.globalArgs);
+  ctx.logger?.info("Reading share stats from {dbPath}", { dbPath });
   const db = await openDatabase(dbPath);
 
   try {
@@ -257,10 +288,20 @@ async function executeStats(_args: Record<string, never>, ctx: MethodContext) {
 }
 
 /** LinkDrop SQLite receiver: durable storage for shared URLs. */
-export const behavior = {
+export const model = {
   type: "@svendowideit/linkdrop",
-  version: "2026.10.27.1",
+  version: "2026.10.27.2",
   globalArguments: GlobalArgsSchema,
+
+  upgrades: [
+    {
+      toVersion: "2026.10.27.2",
+      description:
+        "Package the LinkDrop setup and webhook workflows with the extension; " +
+        "no behavior attributes change.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+  ],
 
   resources: {
     link: {
@@ -270,12 +311,9 @@ export const behavior = {
       garbageCollection: 100,
     },
     links: {
-      description: "The most recent rows read from the SQLite inbox.",
-      schema: z.object({
-        dbPath: z.string(),
-        count: z.number(),
-        links: z.array(LinkRowSchema),
-      }),
+      description:
+        "The most recent rows read from the SQLite inbox, with a truncation flag.",
+      schema: LinkListSchema,
       lifetime: "infinite" as const,
       garbageCollection: 20,
     },

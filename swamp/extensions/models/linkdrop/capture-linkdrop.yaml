@@ -1,0 +1,79 @@
+id: afa8765e-74db-4910-ad8d-e8cff766026a
+name: "@svendowideit/capture-linkdrop"
+description: >
+  Receive one LinkDrop share from the swamp serve webhook and store it in
+  SQLite. The trigger maps the verified webhook body onto named inputs; the
+  step calls @svendowideit/linkdrop store, which is idempotent by share id.
+tags:
+  linkdrop: "webhook"
+trigger:
+  inputs:
+    id: '${{ has(webhook.body.id) ? webhook.body.id : "" }}'
+    url: '${{ webhook.body.url }}'
+    title: '${{ has(webhook.body.title) ? webhook.body.title : "" }}'
+    text: '${{ has(webhook.body.text) ? webhook.body.text : webhook.body.url }}'
+    principal: '${{ has(webhook.body.principal) ? webhook.body.principal : "" }}'
+    source: '${{ has(webhook.body.source) ? webhook.body.source : "android-share" }}'
+    device: '${{ has(webhook.body.device) ? webhook.body.device : "" }}'
+    sharedAt: '${{ has(webhook.body.sharedAt) ? webhook.body.sharedAt : "" }}'
+inputs:
+  properties:
+    id:
+      type: string
+      default: ""
+      description: Share UUID; empty generates one.
+    url:
+      type: string
+      description: The shared URL (required).
+    title:
+      type: string
+      default: ""
+      description: Optional page title.
+    text:
+      type: string
+      default: ""
+      description: Full shared text.
+    principal:
+      type: string
+      default: ""
+      description: Stable per-app/profile identifier.
+    source:
+      type: string
+      default: "android-share"
+      description: Share source label.
+    device:
+      type: string
+      default: ""
+      description: Device label from the app.
+    sharedAt:
+      type: string
+      default: ""
+      description: ISO timestamp from the app.
+  required:
+    - url
+jobs:
+  - name: store
+    description: Insert the verified share into the SQLite inbox.
+    steps:
+      - name: store
+        description: Idempotently insert the share by id.
+        task:
+          type: model_method
+          modelType: "@svendowideit/linkdrop"
+          modelName: linkdrop
+          methodName: store
+          inputs:
+            id: "${{ inputs.id }}"
+            url: "${{ inputs.url }}"
+            title: "${{ inputs.title }}"
+            text: "${{ inputs.text }}"
+            principal: "${{ inputs.principal }}"
+            source: "${{ inputs.source }}"
+            device: "${{ inputs.device }}"
+            sharedAt: "${{ inputs.sharedAt }}"
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1

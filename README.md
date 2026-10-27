@@ -192,8 +192,8 @@ curl -X POST "https://linkdrop.fi.gy/hooks/linkdrop" \
 - `Idempotency-Key` is the share UUID, so the receiver can dedupe retries.
 
 A minimal swamp receiver lives in [`swamp/`](swamp/): the
-`@svendowideit/linkdrop` behavior, `linkdrop-setup` (Caddy DNS/TLS),
-`capture-linkdrop` (webhook → SQLite), and `serve.yaml`.
+`@svendowideit/linkdrop` behavior, `@svendowideit/linkdrop-setup` (Caddy
+DNS/TLS), `@svendowideit/capture-linkdrop` (webhook → SQLite), and `serve.yaml`.
 
 ```sh
 cd swamp
