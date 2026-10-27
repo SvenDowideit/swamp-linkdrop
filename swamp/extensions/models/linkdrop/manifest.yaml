@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@svendowideit/linkdrop"
-version: "2026.10.27.2"
+version: "2026.10.27.6"
 description: >
   Durable SQLite inbox for URLs shared by the LinkDrop Android app.
 
@@ -11,25 +11,30 @@ description: >
     this behavior is the durable inbox behind it, idempotent by share UUID, so
     app retries do not create duplicate rows. It is independent of swamp data
     retention and can be queried with any SQLite tool, while the bundled
-    `@svendowideit/linkdrop-setup` workflow creates the Caddy DNS/TLS route for
-    the existing `swamp serve` webhook.
+    `@svendowideit/linkdrop-setup` workflow registers the webhook in the existing
+    `swamp serve` through the no-auth `@svendowideit/linkdrop-open` handler,
+    restarts it, verifies the route with a test POST, then creates the Caddy
+    DNS/TLS route. Test POSTs use `source=linkdrop-verify` and are not stored.
 
   INSTALL
 
       swamp extension pull @svendowideit/linkdrop
 
     One pull installs the behavior and both bundled workflows:
-    `@svendowideit/linkdrop-setup` (Caddy DNS/TLS) and
+    `@svendowideit/linkdrop-setup` (webhook registration + Caddy DNS/TLS) and
     `@svendowideit/capture-linkdrop` (webhook handler).
 
   DEPENDENCIES
 
     The bundled `@svendowideit/linkdrop-setup` workflow requires
-    @svendowideit/caddy (pulled automatically as a dependency) and assumes
-    `swamp serve` is already configured with the `/hooks/linkdrop` webhook
-    route. Pulling the dependency installs the type, not a configured Caddy
-    model: create/configure one and pass `--input caddyModel=<its-name>` if it
-    is not named `caddy`. The SQLite behavior itself has no runtime dependency.
+    `@svendowideit/caddy` and `@svendowideit/systemd-service` (both pulled
+    automatically) and assumes a running systemd `swamp serve`. It registers the
+    webhook in that serve's config, restarts the unit, and verifies the route.
+    The webhook uses the bundled no-auth handler, so there is no token, env,
+    vault, or app-side secret. Pulling the dependencies installs the types, not
+    a configured Caddy model: create/configure one and pass
+    `--input caddyModel=<its-name>` if it is not named `caddy`. The SQLite
+    behavior itself has no runtime dependency.
 
   RUN
 
@@ -57,6 +62,14 @@ description: >
       swamp model create @svendowideit/linkdrop linkdrop \
         --global-arg dbPath=~/.swamp/linkdrop/links.db
 
+    The setup workflow's serve inputs default to `serveRepo=.`,
+    `serveConfig=.swamp/serve.yaml`, `serveService=swamp-serve`,
+    `verifyUrl=http://127.0.0.1:9090/`. Pass `serveRepo` when the workflow runs
+    outside the repo the running serve uses, and pass `serveService` when the
+    systemd unit is named differently. There is no webhook token or secret to
+    configure. `configureServe` validates with `swamp serve check-config`; set
+    the `swampBinPath` global if swamp is not on `PATH`.
+
   UPGRADE
 
     This behavior installs nothing on the host. Update the pulled extension with
@@ -65,11 +78,13 @@ description: >
 
   WHAT IT INSTALLS
 
-    Nothing on the host: no services, cron triggers, daemons, or webhooks. It
-    writes a SQLite database and swamp resources. It ships two workflows:
-    `@svendowideit/linkdrop-setup` creates a Caddy route and DNS/TLS entry for
-    the existing swamp serve webhook, and `@svendowideit/capture-linkdrop` is
-    the workflow that webhook runs. It installs no services or cron triggers.
+    No services, cron triggers, or daemons. It writes a SQLite database and
+    swamp resources, and it adds `/hooks/linkdrop` to the existing `serve.yaml`
+    using the no-auth handler before restarting the existing systemd serve. It
+    ships two workflows:
+    `@svendowideit/linkdrop-setup` registers and verifies the webhook before
+    creating the Caddy route and DNS/TLS entry; `@svendowideit/capture-linkdrop`
+    is the workflow that webhook runs. It does not create a second serve.
 
 repository: https://github.com/svendowideit/linkdrop
 
@@ -81,6 +96,9 @@ paths:
 models:
   - linkdrop.ts
 
+webhooks:
+  - linkdrop_open.ts
+
 workflows:
   - linkdrop-setup.yaml
   - capture-linkdrop.yaml
@@ -88,11 +106,13 @@ workflows:
 
 dependencies:
   - "@svendowideit/caddy"
+  - "@svendowideit/systemd-service"
 
 additionalFiles:
   - README.md
   - LICENSE.txt
   - linkdrop_test.ts
+  - linkdrop_open_test.ts
   - serve.example.yaml
 
 platforms: []

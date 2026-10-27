@@ -9,11 +9,11 @@ import kotlin.concurrent.thread
 class HttpTest {
 
     @Test
-    fun postsBodyAndSignsIt() {
+    fun postsBodyWithoutTokenHeaders() {
         val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         var receivedBody = ""
-        var receivedSignature = ""
         var receivedPrincipal = ""
+        var receivedTokenHeader: String? = null
 
         val serverThread = thread {
             server.accept().use { socket ->
@@ -40,7 +40,7 @@ class HttpTest {
                 }
 
                 receivedBody = String(chars, 0, read)
-                receivedSignature = headers["x-webhook-token"] ?: ""
+                receivedTokenHeader = headers["x-webhook-token"]
                 receivedPrincipal = headers["x-linkdrop-principal"] ?: ""
 
                 socket.getOutputStream().write(
@@ -55,7 +55,6 @@ class HttpTest {
             val body = """{"id":"id-1","url":"https://example.com"}"""
             val result = Http.post(
                 endpoint = "http://127.0.0.1:${server.localPort}/",
-                token = "secret",
                 principal = "principal-1",
                 idempotencyKey = "id-1",
                 json = body,
@@ -63,10 +62,7 @@ class HttpTest {
 
             assertEquals(200, result.code)
             assertEquals(body, receivedBody)
-            assertEquals(
-                Hmac.sha256Hex(body.toByteArray(Charsets.UTF_8), "secret"),
-                receivedSignature,
-            )
+            assertEquals(null, receivedTokenHeader)
             assertEquals("principal-1", receivedPrincipal)
         } finally {
             server.close()

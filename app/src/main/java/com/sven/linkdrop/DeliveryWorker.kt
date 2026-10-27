@@ -43,7 +43,6 @@ class DeliveryWorker(
         db.markInflight(id)
         val result = Http.post(
             endpoint = prefs.endpoint,
-            token = prefs.token,
             principal = share.principal,
             idempotencyKey = share.id,
             json = payload,

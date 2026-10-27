@@ -5,8 +5,6 @@
     <string name="settings_intro">Share a URL from any app. LinkDrop queues it locally and posts it to your receiver when the network is available.</string>
     <string name="endpoint_label">Receiver URL</string>
     <string name="endpoint_hint">https://linkdrop.example.com/hooks/linkdrop</string>
-    <string name="token_label">Webhook token (optional)</string>
-    <string name="token_hint">HMAC key for X-Webhook-Token</string>
     <string name="save">Save</string>
     <string name="test">Test</string>
     <string name="retry_all">Retry all</string>

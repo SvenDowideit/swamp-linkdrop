@@ -121,12 +121,10 @@ adb install -r dist/linkdrop.apk
 Open **LinkDrop** once:
 
 1. The **Receiver URL** is prefilled with the compiled-in default.
-2. Paste the receiver's HMAC secret into **Webhook token**. This is the same
-   value as `LINKDROP_TOKEN` in the receiver's environment. The app signs each
-   request and sends the lowercase hex HMAC-SHA256 digest in
-   `X-Webhook-Token`; the bundled `swamp serve` webhook requires it.
-3. Tap **Save**.
-4. Tap **Test** to send a test share and see the receiver's HTTP status.
+2. Tap **Save**.
+3. Tap **Test** to send a test share and see the receiver's HTTP status.
+
+There is no token or secret. The app posts plain JSON to the receiver.
 
 The test sends `"source":"linkdrop-test"` so the receiver can ignore it if
 desired.
@@ -153,7 +151,6 @@ POST /hooks/linkdrop HTTP/1.1
 Host: linkdrop.fi.gy
 Content-Type: application/json
 User-Agent: LinkDrop/1.0 (Android)
-X-Webhook-Token: <hex HMAC-SHA256 of body>
 X-LinkDrop-Principal: <stable per-app/profile id>
 Idempotency-Key: <share UUID>
 
@@ -169,18 +166,15 @@ Idempotency-Key: <share UUID>
 }
 ```
 
-`X-Webhook-Token` is not a static bearer token. It is the lowercase hex
-HMAC-SHA256 of the exact request body, keyed by the token saved in the app. The
-bundled `swamp serve` `generic` scheme verifies this signature.
+There is no authentication header. The bundled receiver uses a no-auth
+webhook handler.
 
 To test a receiver by hand:
 
 ```sh
 BODY='{"id":"manual-1","url":"https://example.com/manual","principal":"test"}'
-SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$LINKDROP_TOKEN" -r | cut -d' ' -f1)
 curl -X POST "https://linkdrop.fi.gy/hooks/linkdrop" \
   -H 'Content-Type: application/json' \
-  -H "X-Webhook-Token: $SIG" \
   -H 'X-LinkDrop-Principal: test' \
   -d "$BODY"
 ```
@@ -192,12 +186,12 @@ curl -X POST "https://linkdrop.fi.gy/hooks/linkdrop" \
 - `Idempotency-Key` is the share UUID, so the receiver can dedupe retries.
 
 A minimal swamp receiver lives in [`swamp/`](swamp/): the
-`@svendowideit/linkdrop` behavior, `@svendowideit/linkdrop-setup` (Caddy
-DNS/TLS), `@svendowideit/capture-linkdrop` (webhook → SQLite), and `serve.yaml`.
+`@svendowideit/linkdrop` behavior, `@svendowideit/linkdrop-setup` (webhook
+registration + Caddy DNS/TLS), `@svendowideit/capture-linkdrop` (webhook →
+SQLite), and `serve.yaml`.
 
 ```sh
 cd swamp
-export LINKDROP_TOKEN="$(openssl rand -hex 32)"
 swamp serve --config serve.yaml
 ```
 
@@ -236,13 +230,11 @@ ShareActivity (transparent)
 ## Security
 
 - The app only sends over HTTPS. Cleartext traffic is disabled.
-- The HMAC secret is stored in app-private storage, encrypted with an Android
-  Keystore key. `android:allowBackup="false"`.
-- The receiver URL and token are not sent anywhere except the configured
-  receiver.
-- This is a personal sideloaded app, not a multi-tenant product. Use a
-  tailnet-only receiver or a low-value token; a token baked into or stored by an
-  installed APK can be extracted by someone with control of the device.
+- `android:allowBackup="false"`.
+- The receiver URL is not sent anywhere except the configured receiver.
+- The webhook route is unauthenticated. Protect it with Tailscale/WireGuard,
+  Caddy auth, or a trusted-network boundary; anyone who can reach the URL can
+  post to it.
 
 ---
 
@@ -258,13 +250,12 @@ Layout:
 ```
 app/src/main/java/com/sven/linkdrop/
   ShareActivity.kt       transparent ACTION_SEND target
-  SettingsActivity.kt    receiver URL/token, test, queue counts
+  SettingsActivity.kt    receiver URL, test, queue counts
   LinkExtractor.kt       first-URL extraction (unit tested)
   QueueDb.kt             SQLite queue
   DeliveryWorker.kt      WorkManager delivery + retries
   Http.kt                minimal HttpURLConnection POST
-  Prefs.kt               URL/token/principal storage
-  Crypto.kt              Keystore-backed token encryption
+  Prefs.kt               URL/principal storage
   ShortcutPublisher.kt   best-effort Direct Share shortcut
 app/src/main/res/        layouts, strings, theme, icon
 scripts/                 Docker build, keystore, install, test
@@ -286,9 +277,17 @@ Allow the app you use to open the APK (Files, Chrome, Drive) under
 also check **Allow restricted settings** in the app's info page.
 
 **Shares stay queued**
-Open LinkDrop → **Test**. Check the receiver URL, token, DNS, and TLS. Also check
-that the receiver responds with `2xx`. On aggressive OEM battery managers, allow
+Open LinkDrop → **Test**. Check the receiver URL, DNS, and TLS. Also check that
+the receiver responds with `2xx`. On aggressive OEM battery managers, allow
 LinkDrop to run in the background.
+
+**404 Not found from the webhook**
+The Caddy route is live but the running `swamp serve` does not have
+`/hooks/linkdrop` registered. `@svendowideit/linkdrop-setup` registers the
+webhook, restarts the existing systemd serve, and verifies the route; check the
+workflow output and `curl -sS http://127.0.0.1:9090/ | jq '{webhooks}'`. If you
+run the receiver manually instead of systemd, start it with
+`swamp serve --config swamp/serve.yaml`.
 
 **Updates**
 Bump `versionCode` in `app/build.gradle.kts`, use the same keystore, and install

@@ -9,14 +9,17 @@ webhook. This behavior is the receiver behind that webhook: it validates the
 mapped fields, inserts the row into SQLite, and writes a swamp `link` resource.
 The insert is idempotent by the app's share UUID, so a retry after a lost HTTP
 response does not duplicate a row. The bundled `@svendowideit/linkdrop-setup`
-workflow creates the Caddy DNS record and TLS route for the `linkdrop.<zone>`
-name; the bundled `@svendowideit/capture-linkdrop` workflow is the webhook
-handler.
+workflow registers the route in the existing serve config, restarts and
+verifies the running serve, then creates the Caddy DNS record and TLS route for
+`linkdrop.<zone>`. The bundled `@svendowideit/capture-linkdrop` workflow is the
+webhook handler.
 
 Side effects: creates/opens the configured SQLite file, creates its parent
-directory and the `links` table, writes a `link`/`links`/`stats` swamp resource,
-and (via the setup workflow) creates a Caddy route and DNS/TLS entry. It installs
-no services, cron triggers, daemons, or webhooks of its own.
+directory and the `links` table, and writes a `link`/`links`/`stats` swamp
+resource. The setup workflow merges `/hooks/linkdrop` into the existing serve
+config, restarts the existing systemd serve, verifies it, and then creates a
+Caddy route and DNS/TLS entry. It installs no services, cron triggers, or
+daemons.
 
 ## Install
 
@@ -25,11 +28,11 @@ swamp extension pull @svendowideit/linkdrop
 ```
 
 One pull installs the behavior and both bundled workflows:
-`@svendowideit/linkdrop-setup` (Caddy DNS/TLS) and
-`@svendowideit/capture-linkdrop` (webhook handler). `@svendowideit/caddy` is
-pulled automatically as a dependency. That installs the Caddy type; you still
-need a configured Caddy model, and can point the setup workflow at it with
-`--input caddyModel=my-caddy` (default `caddy`).
+`@svendowideit/linkdrop-setup` (webhook registration + Caddy DNS/TLS) and
+`@svendowideit/capture-linkdrop` (webhook handler). `@svendowideit/caddy` and
+`@svendowideit/systemd-service` are pulled automatically as dependencies. That
+installs the types; you still need a configured Caddy model, and can point the
+setup workflow at it with `--input caddyModel=my-caddy` (default `caddy`).
 
 For local development in this repository, the behavior is loaded directly from
 `extensions/models/linkdrop`; no pull is needed. The webhook route itself lives
@@ -40,6 +43,7 @@ in `swamp serve`'s config.
 | Argument | Type | Default | Meaning |
 | -------- | ---- | ------- | ------- |
 | `dbPath` | string | `""` | SQLite file path. Empty resolves to `$SWAMP_HOME/linkdrop/links.db`, falling back to `~/.swamp/linkdrop/links.db`. |
+| `swampBinPath` | string | `swamp` | The swamp binary `configureServe` uses for `swamp serve check-config`. Set an absolute path if swamp is not on `PATH`. |
 
 Set it when creating the model, or edit the existing definition:
 
@@ -69,7 +73,9 @@ swamp model @svendowideit/linkdrop method run stats linkdrop
 # writes the record. ACME issuance and DNS propagation happen after the run.
 # Default caddyModel is `caddy`; override if your model has another name.
 swamp workflow run @svendowideit/linkdrop-setup \
-  --input dnsName=linkdrop.example.com --input caddyModel=my-caddy
+  --input dnsName=linkdrop.example.com \
+  --input caddyModel=my-caddy \
+  --input serveRepo=/srv/swamp-repo
 
 # Run the webhook handler manually with the same fields the app sends.
 swamp workflow run @svendowideit/capture-linkdrop \
@@ -86,26 +92,29 @@ leave the SQLite file in place:
 swamp extension update @svendowideit/linkdrop
 ```
 
-The `links` table is created with `CREATE TABLE IF NOT EXISTS`; an existing
-database is not rewritten or migrated destructively.
+The `links` table is created if absent; an existing v1 database is migrated in
+place, preserving its rows.
 
 ## Details
 
 ### Behavior type
 
-`@svendowideit/linkdrop` exposes three methods:
+`@svendowideit/linkdrop` exposes five methods:
 
 | Method | Arguments | Output resource | Purpose |
 | ------ | --------- | --------------- | ------- |
 | `store` | `id`, `url`, `title`, `text`, `principal`, `source`, `device`, `sharedAt`, `receivedAt` | `link` | Insert one share. `id` is optional (a UUID is generated); duplicate ids are ignored. `url` is required and must start with `http://` or `https://` (validated before the database is opened). |
 | `list` | `limit` (1–500, default 20) | `links` | Return recent rows, newest first, with `count` and a `truncated` flag indicating more rows exist. |
 | `stats` | none | `stats` | Return the total row count and database path. |
+| `configureServe` | `serveRepo`, `serveConfig`, `route`, `workflow`, `validate` | `serveConfig` | Idempotently merge the webhook into the existing serve config; validate with `swamp serve check-config` unless `validate=false`. |
+| `verifyWebhook` | `url`, `route`, `workflow`, `timeoutMs`, `waitMs`, `intervalMs` | `serveVerify` | POST a test share with `source=linkdrop-verify`, retry for up to `waitMs` while the restarted serve comes up, and fail unless the route accepts it. The workflow skips storing verify shares. |
 
 ### SQLite schema
 
 ```sql
-CREATE TABLE IF NOT EXISTS links (
-  id TEXT PRIMARY KEY,
+CREATE TABLE links (
+  id TEXT PRIMARY KEY,        -- server-generated row id
+  share_id TEXT NOT NULL,     -- app Idempotency-Key / share UUID
   url TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT '',
   text TEXT NOT NULL DEFAULT '',
@@ -113,20 +122,47 @@ CREATE TABLE IF NOT EXISTS links (
   source TEXT NOT NULL DEFAULT '',
   device TEXT NOT NULL DEFAULT '',
   shared_at TEXT NOT NULL DEFAULT '',
-  received_at TEXT NOT NULL
+  received_at TEXT NOT NULL,
+  UNIQUE(share_id, url)
 );
-CREATE INDEX IF NOT EXISTS idx_links_received_at ON links(received_at);
+CREATE INDEX idx_links_received_at ON links(received_at);
 ```
 
 The database uses WAL mode, so concurrent readers are fine while the webhook
-writes. The `id` primary key is the app's `Idempotency-Key` / share UUID.
+writes. Idempotency is `(share_id, url)`: retries of the same share are ignored,
+but the same app share id with a different URL is stored as a separate row. A
+v1 database that used the app id as its primary key is migrated automatically,
+preserving the existing rows.
+
+### Webhook registration
+
+`configureServe` merges one webhook entry into the **existing** serve config by
+route, preserving every other key and webhook. It writes atomically, validates
+with `swamp serve check-config` unless `validate=false`, and is idempotent: a
+second run with the same entry reports `changed=false`. Validation runs the
+`swampBinPath` binary with the absolute config path and `--repo-dir`; it never
+passes method args to a shell. `verifyWebhook` POSTs a test share to the route;
+the `@svendowideit/capture-linkdrop` workflow skips the store step when
+`source=linkdrop-verify`, so verification leaves no row behind.
+
+There is no webhook token or secret. `configureServe` writes the no-auth
+`@svendowideit/linkdrop-open` scheme and the literal placeholder
+`secret: "unused"` that swamp serve requires in every route.
 
 ### Workflows
 
+The setup workflow's serve inputs are `serveRepo` (default `.`), `serveConfig`
+(default `.swamp/serve.yaml`), `serveService` (default `swamp-serve`),
+`verifyUrl` (default `http://127.0.0.1:9090/`), `webhookRoute` (default
+`/hooks/linkdrop`), `webhookWorkflow` (default
+`@svendowideit/capture-linkdrop`), and `validateServe` (default true). There is
+no token or secret input.
+
 **`@svendowideit/linkdrop-setup`** takes `dnsName` (for example
 `linkdrop.example.com`), an optional `upstream` (default `127.0.0.1:9090`), and
-a `caddyModel` (default `caddy`). It calls `@svendowideit/caddy`
-`ensureDnsProxy` and then `applyDnsRecords`. The
+a `caddyModel` (default `caddy`). It merges the webhook into the existing
+`serve.yaml`, restarts the systemd service, verifies the route, then calls
+`@svendowideit/caddy` `ensureDnsProxy` and `applyDnsRecords`. The
 Caddy model must already have `baseDomain` and a DNS provider configured. DNS
 propagation and ACME certificate issuance are asynchronous; verify the live
 endpoint with `curl https://linkdrop.<zone>/` or Caddy's health/audit methods.
@@ -137,26 +173,32 @@ endpoint with `curl https://linkdrop.<zone>/` or Caddy's health/audit methods.
 durable inbox. Downstream routing can be added as a separate workflow that reads
 the SQLite table or listens to the stored data.
 
+`@svendowideit/linkdrop-setup` uses a separate `linkdrop-setup` model instance
+for configuration and verification, so setup cannot contend with the receiver's
+`linkdrop` store lock. It registers the route in the existing serve config,
+restarts the existing systemd service, verifies the route, and then configures
+Caddy. It does not create a second serve. The running serve must use
+the repo/config you pass (`serveRepo`, default `.`, and `serveConfig`, default
+`.swamp/serve.yaml`), and its service name is `serveService` (default
+`swamp-serve`).
+
 ### Webhook configuration
 
-Copy `serve.example.yaml` to the repo's serve config (or merge it), and set
-`LINKDROP_TOKEN` in the serve environment:
+`@svendowideit/linkdrop-setup` merges this entry into the existing serve config
+automatically. `serve.example.yaml` is kept as a reference for manual setups:
 
 ```yaml
 webhooks:
   - route: /hooks/linkdrop
     workflow: "@svendowideit/capture-linkdrop"
-    secret: "@env=LINKDROP_TOKEN"
-    scheme: generic
-    header: x-webhook-token
+    scheme: "@svendowideit/linkdrop-open"
+    secret: "unused"
+    config: {}
 ```
 
-The app sends `X-Webhook-Token: <lowercase hex HMAC-SHA256 of the exact body,
-keyed by LINKDROP_TOKEN>` and `X-LinkDrop-Principal: <principal>`.
-
-The built-in `generic` scheme is HMAC-over-body, not a static bearer token.
-`header` names the header, and an optional `prefix` (for example `sha256=`) is
-stripped before comparing. With no prefix, send the bare hex digest.
+The app sends `X-LinkDrop-Principal: <principal>` and no authentication header.
+The bundled `@svendowideit/linkdrop-open` handler accepts every request. Protect
+the route at the network or Caddy layer if access control is needed.
 
 ### Structure and testing
 

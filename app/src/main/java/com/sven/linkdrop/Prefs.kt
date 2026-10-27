@@ -16,12 +16,6 @@ class Prefs(context: Context) {
             prefs.edit().putString(KEY_ENDPOINT, value.trim()).apply()
         }
 
-    var token: String
-        get() = Crypto.decrypt(prefs.getString(KEY_TOKEN, "") ?: "")
-        set(value) {
-            prefs.edit().putString(KEY_TOKEN, Crypto.encrypt(value.trim())).apply()
-        }
-
     val principal: String
         get() {
             prefs.getString(KEY_PRINCIPAL, null)?.takeIf { it.isNotBlank() }?.let {
@@ -41,7 +35,6 @@ class Prefs(context: Context) {
 
     private companion object {
         const val KEY_ENDPOINT = "endpoint"
-        const val KEY_TOKEN = "token"
         const val KEY_PRINCIPAL = "principal"
     }
 }

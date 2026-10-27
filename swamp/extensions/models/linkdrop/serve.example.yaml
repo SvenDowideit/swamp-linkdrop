@@ -1,6 +1,6 @@
 webhooks:
   - route: /hooks/linkdrop
     workflow: "@svendowideit/capture-linkdrop"
-    secret: "@env=LINKDROP_TOKEN"
-    scheme: generic
-    header: x-webhook-token
+    scheme: "@svendowideit/linkdrop-open"
+    secret: "unused"
+    config: {}

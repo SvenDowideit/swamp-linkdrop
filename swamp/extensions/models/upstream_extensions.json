@@ -49,5 +49,22 @@
     "filesChecksum": "837e64a4d4dc523138a93cf97cff4559ce357a5b927d8bb550a627d66d675767",
     "serverUrl": "https://swamp-club.com",
     "publishedChannel": "stable"
+  },
+  "@svendowideit/systemd-service": {
+    "version": "2026.10.02.1",
+    "pulledAt": "2026-10-27T09:46:57.797Z",
+    "files": [
+      ".swamp/bundles/b04c5b9e/systemd_service.js",
+      ".swamp/pulled-extensions/@svendowideit/systemd-service/files/LICENSE.txt",
+      ".swamp/pulled-extensions/@svendowideit/systemd-service/files/README.md",
+      ".swamp/pulled-extensions/@svendowideit/systemd-service/files/systemd_service_test.ts",
+      ".swamp/pulled-extensions/@svendowideit/systemd-service/manifest.yaml",
+      ".swamp/pulled-extensions/@svendowideit/systemd-service/models/systemd_service.ts",
+      ".swamp/pulled-extensions/@svendowideit/systemd-service/workflows/systemd-service-audit.yaml"
+    ],
+    "checksum": "3592b279cbbb718ad76c621eb6a81d1142a725ee28b50f6d93f2da026d5d325e",
+    "filesChecksum": "c8fbc6e31a23ace3da1d8793ac15fcb443e820a9307eca55e764bd698e61b6d6",
+    "serverUrl": "https://swamp-club.com",
+    "publishedChannel": "stable"
   }
 }

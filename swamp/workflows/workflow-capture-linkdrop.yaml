@@ -56,6 +56,7 @@ jobs:
     description: Insert the verified share into the SQLite inbox.
     steps:
       - name: store
+        guard: '${{ inputs.source == "linkdrop-verify" }}'
         description: Idempotently insert the share by id.
         task:
           type: model_method

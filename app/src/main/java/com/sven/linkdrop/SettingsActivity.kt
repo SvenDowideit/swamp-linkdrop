@@ -16,7 +16,6 @@ class SettingsActivity : Activity() {
 
     private lateinit var prefs: Prefs
     private lateinit var endpoint: EditText
-    private lateinit var token: EditText
     private lateinit var status: TextView
     private lateinit var queueSummary: TextView
     private val io = Executors.newSingleThreadExecutor()
@@ -27,12 +26,10 @@ class SettingsActivity : Activity() {
 
         prefs = Prefs(this)
         endpoint = findViewById(R.id.endpoint)
-        token = findViewById(R.id.token)
         status = findViewById(R.id.status)
         queueSummary = findViewById(R.id.queue_summary)
 
         endpoint.setText(prefs.endpoint)
-        token.setText(prefs.token)
 
         QueueDb.get(this).resetInflight()
         DeliveryWorker.enqueueAllPending(this)
@@ -76,7 +73,6 @@ class SettingsActivity : Activity() {
         }
 
         prefs.endpoint = rawEndpoint
-        prefs.token = token.text.toString()
         endpoint.setText(prefs.endpoint)
 
         if (showStatus) status.setText(R.string.status_saved)
@@ -88,7 +84,6 @@ class SettingsActivity : Activity() {
         if (!saveSettings(showStatus = false)) return
 
         val target = prefs.endpoint
-        val targetToken = prefs.token
         val principal = prefs.principal
         status.setText(R.string.status_testing)
 
@@ -106,7 +101,6 @@ class SettingsActivity : Activity() {
 
             val result = Http.post(
                 endpoint = target,
-                token = targetToken,
                 principal = principal,
                 idempotencyKey = UUID.randomUUID().toString(),
                 json = payload,

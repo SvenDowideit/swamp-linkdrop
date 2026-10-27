@@ -14,36 +14,42 @@ SQLite, plus the workflows that expose and handle the webhook.
 - A configured `@svendowideit/caddy` model (default name `caddy`) with a
   `baseDomain` and DNS provider, so `linkdrop.<zone>` can get an A record and a
   certificate.
-- `swamp serve` running from this repo, with `LINKDROP_TOKEN` in its environment.
+- `swamp serve` running from this repo. The webhook uses the bundled no-auth
+  handler, so there is no token or secret to set.
 - The Android app's **Receiver URL** set to
-  `https://linkdrop.<zone>/hooks/linkdrop` and its **Webhook token** set to the
-  same `LINKDROP_TOKEN`.
+  `https://linkdrop.<zone>/hooks/linkdrop`.
 
-## Create the DNS/TLS route
+## Configure the receiver and route
 
 ```sh
 # Replace linkdrop.fi.gy with your zone. The name must be under baseDomain.
 swamp workflow run @svendowideit/linkdrop-setup --input dnsName=linkdrop.fi.gy
 ```
 
-The workflow calls Caddy `ensureDnsProxy` (route + TLS subject + desired A
-record), `applyDnsRecords`, then `checkHealth`. DNS propagation and ACME
-issuance are asynchronous; verify the live endpoint after they settle.
+The workflow first merges `/hooks/linkdrop` into the existing serve config,
+restarts the existing systemd `swamp-serve` unit, and verifies the running
+server reports the route. It then calls Caddy `ensureDnsProxy` (route + TLS
+subject + desired A record), `applyDnsRecords`, and `checkHealth`. DNS
+propagation and ACME issuance are asynchronous; verify the live endpoint after
+they settle.
 
 ### Validation vs a live run
 
-`swamp workflow validate @svendowideit/linkdrop-setup` only checks the workflow schema and the
-step inputs against the installed `@svendowideit/caddy` type. It does not call
-Caddy, write DNS, or issue a certificate.
+`swamp workflow validate @svendowideit/linkdrop-setup` only checks the workflow
+schema and step inputs against the installed types. It does not edit serve
+config, restart serve, write DNS, or issue a certificate.
 
-This repo is a fresh swamp repository and does not create a Caddy model. A live
-run needs a configured `@svendowideit/caddy` model that owns the target zone
-(`baseDomain`, DNS provider, ACME email, etc.):
+This repo is a fresh swamp repository and does not create a Caddy model or a
+serve model. A live run needs a configured `@svendowideit/caddy` model that owns
+the target zone (`baseDomain`, DNS provider, ACME email, etc.) and a running
+systemd `swamp serve` whose repo/config you pass:
 
 ```sh
 swamp workflow run @svendowideit/linkdrop-setup \
   --input dnsName=linkdrop.fi.gy \
-  --input caddyModel=my-caddy
+  --input caddyModel=my-caddy \
+  --input serveRepo=/srv/swamp-repo \
+  --input serveService=swamp-serve
 ```
 
 If Caddy does not reach swamp serve on `127.0.0.1:9090`, also pass
@@ -52,21 +58,23 @@ make real changes to Caddy and DNS, so run them against the intended model/host.
 
 ## Run the receiver
 
-```sh
-export LINKDROP_TOKEN="$(openssl rand -hex 32)"
-swamp serve --config serve.yaml
-```
+`linkdrop-setup` registers `/hooks/linkdrop` in the existing serve config,
+restarts the existing systemd service, verifies the route, and then configures
+Caddy. It does **not** create a second serve.
 
-The webhook is `POST /hooks/linkdrop`. The `generic` scheme verifies
-HMAC-SHA256 over the exact request body, with the digest hex in
-`X-Webhook-Token`:
+The serve process must already be running from the repo/config you pass
+(`serveRepo`, default `.`, and `serveConfig`, default `.swamp/serve.yaml`), and
+the service name must be correct (`serveService`, default `swamp-serve`).
+
+If you run the receiver manually for development instead of the systemd
+service, use `swamp serve --config serve.yaml`.
+
+The webhook is `POST /hooks/linkdrop` and is unauthenticated:
 
 ```sh
 BODY='{"id":"manual-1","url":"https://example.com/manual","principal":"test"}'
-SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$LINKDROP_TOKEN" -r | cut -d' ' -f1)
 curl -X POST http://127.0.0.1:9090/hooks/linkdrop \
   -H 'Content-Type: application/json' \
-  -H "X-Webhook-Token: $SIG" \
   -H 'X-LinkDrop-Principal: test' \
   -d "$BODY"
 ```
@@ -74,6 +82,21 @@ curl -X POST http://127.0.0.1:9090/hooks/linkdrop \
 A verified request runs `@svendowideit/capture-linkdrop`, which calls
 `@svendowideit/linkdrop store` and inserts one row into SQLite. The insert is
 idempotent by the app's share UUID.
+
+## Troubleshooting a 404
+
+Caddy adds `via: 1.1 Caddy` to proxied responses. A `404` with a plain body
+`Not found` means the Caddy route is working, but the running `swamp serve` does
+not have `/hooks/linkdrop` registered. `@svendowideit/linkdrop-setup` now
+registers it and restarts the service; check the run output and then:
+
+```sh
+curl -sS http://127.0.0.1:9090/ | jq '{webhooks}'
+```
+
+If the route is missing, confirm the workflow used the right `serveRepo`,
+`serveConfig`, and `serveService`. A `502` means nothing is listening on the
+upstream. A `401` means the route is not using the open handler.
 
 ## Inspect the inbox
 
@@ -110,9 +133,9 @@ The adversarial review report for the current extension content is stored in
 ./scripts/push-linkdrop.sh --dry-run   # check without publishing
 ```
 
-The extension version is `2026.10.27.2`; it bundles
+The extension version is `2026.10.27.6`; it bundles
 `@svendowideit/linkdrop-setup` and `@svendowideit/capture-linkdrop` and depends
-on `@svendowideit/caddy`. After pushing, consumers run:
+on `@svendowideit/caddy` and `@svendowideit/systemd-service`. After pushing, consumers run:
 
 ```sh
 swamp extension update @svendowideit/linkdrop

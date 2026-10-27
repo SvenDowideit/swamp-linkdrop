@@ -1,12 +1,14 @@
 id: e5edad82-66a6-4a9b-b079-2c989c69f01f
 name: "@svendowideit/linkdrop-setup"
 description: >
-  Expose the LinkDrop webhook at linkdrop.<zone> through Caddy.
+  Register the LinkDrop webhook and expose it at linkdrop.<zone> through Caddy.
 
-  The workflow adds or updates the reverse-proxy route, lets Caddy add the TLS
-  subject and A record for a name under the Caddy model's baseDomain, applies
-  the DNS records, then checks Caddy's health. DNS propagation and ACME
-  certificate issuance happen asynchronously after the run.
+  The workflow idempotently merges /hooks/linkdrop into the existing serve
+  config, restarts the existing systemd swamp serve, verifies the running
+  server reports the route, then adds or updates the Caddy reverse-proxy route,
+  TLS subject, and A record, applies the DNS records, and checks Caddy health.
+  DNS propagation and ACME certificate issuance happen asynchronously after
+  the run.
 tags:
   linkdrop: "setup"
 inputs:
@@ -24,12 +26,93 @@ inputs:
       type: string
       default: "127.0.0.1:9090"
       description: The swamp serve host:port that receives /hooks/linkdrop.
+    serveRepo:
+      type: string
+      default: "."
+      description: >
+        Repository the running swamp serve uses (the one whose .swamp/serve.yaml
+        is loaded). Pass an absolute path when this workflow runs elsewhere.
+    serveConfig:
+      type: string
+      default: ".swamp/serve.yaml"
+      description: Serve config path, relative to serveRepo or absolute.
+    serveService:
+      type: string
+      default: "swamp-serve"
+      description: systemd user service name to restart after changing serve.yaml.
+    verifyUrl:
+      type: string
+      default: "http://127.0.0.1:9090/"
+      description: Running serve root URL used to verify the webhook registration.
+    webhookRoute:
+      type: string
+      default: "/hooks/linkdrop"
+      description: Webhook route to register in serve.yaml.
+    webhookWorkflow:
+      type: string
+      default: "@svendowideit/capture-linkdrop"
+      description: Workflow the webhook route starts.
+    validateServe:
+      type: boolean
+      default: true
+      description: Run swamp serve check-config after merging the webhook.
   required:
     - dnsName
 jobs:
   - name: expose
-    description: Add the route, apply DNS records, and check Caddy health.
+    description: Register the webhook, restart serve, verify it, then configure Caddy.
     steps:
+      - name: webhook
+        description: Idempotently merge the LinkDrop webhook into the active serve config.
+        task:
+          type: model_method
+          modelType: "@svendowideit/linkdrop"
+          modelName: linkdrop-setup
+          methodName: configureServe
+          inputs:
+            serveRepo: "${{ inputs.serveRepo }}"
+            serveConfig: "${{ inputs.serveConfig }}"
+            route: "${{ inputs.webhookRoute }}"
+            workflow: "${{ inputs.webhookWorkflow }}"
+            validate: "${{ inputs.validateServe }}"
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+
+      - name: restart
+        description: Restart the existing swamp serve so it loads the new webhook route.
+        task:
+          type: model_method
+          modelType: "@svendowideit/systemd-service"
+          modelName: systemd-service
+          methodName: restartService
+          inputs:
+            serviceName: "${{ inputs.serveService }}"
+        dependsOn:
+          - step: webhook
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: verify
+        description: Fail unless the running serve reports the webhook route and workflow.
+        task:
+          type: model_method
+          modelType: "@svendowideit/linkdrop"
+          modelName: linkdrop-setup
+          methodName: verifyWebhook
+          inputs:
+            url: "${{ inputs.verifyUrl }}"
+            route: "${{ inputs.webhookRoute }}"
+            workflow: "${{ inputs.webhookWorkflow }}"
+        dependsOn:
+          - step: restart
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
       - name: route
         description: >
           Add or update the reverse-proxy route. Under baseDomain, Caddy also
@@ -42,7 +125,10 @@ jobs:
           inputs:
             hostname: "${{ inputs.dnsName }}"
             upstream: "${{ inputs.upstream }}"
-        dependsOn: []
+        dependsOn:
+          - step: verify
+            condition:
+              type: succeeded
         weight: 0
         allowFailure: false
 
