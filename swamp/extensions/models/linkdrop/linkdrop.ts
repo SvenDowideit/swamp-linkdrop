@@ -102,6 +102,30 @@ const LinkListSchema = z.object({
   links: z.array(LinkRowSchema),
 });
 
+/** Arguments for `renderHtml`. */
+const RenderLinksArgsSchema = z.object({
+  outputPath: z.string().default("~/.swamp/news-pages/links.html").describe(
+    "HTML file to write. The default is the news-pages directory.",
+  ),
+  limit: z.number().int().positive().max(5_000).default(500).describe(
+    "Maximum number of rows to render, newest first.",
+  ),
+  title: z.string().default("LinkDrop links").describe("Page heading."),
+  dbPath: z.string().default("").describe(
+    "Optional SQLite path override; empty uses the model's dbPath.",
+  ),
+});
+type RenderLinksArgs = z.infer<typeof RenderLinksArgsSchema>;
+
+/** The written links page. */
+const LinksPageSchema = z.object({
+  path: z.string(),
+  count: z.number(),
+  truncated: z.boolean(),
+  dbPath: z.string(),
+  generatedAt: z.string(),
+});
+
 /** Counts returned by `stats`. */
 const StatsSchema = z.object({
   total: z.number(),
@@ -401,6 +425,137 @@ async function executeStats(
   }
 }
 
+/** Escape text for HTML text and attribute contexts. */
+export function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#39;";
+    }
+  });
+}
+
+/** Render the SQLite link rows as one standalone HTML page. */
+export function renderLinksHtml(
+  rows: Array<z.infer<typeof LinkRowSchema>>,
+  options: {
+    title: string;
+    dbPath: string;
+    generatedAt: string;
+    truncated: boolean;
+  },
+): string {
+  const items = rows.map((row) => {
+    const title = row.title.trim() || row.url;
+    const href = escapeHtml(row.url);
+    return `      <li>
+        <a href="${href}" rel="noreferrer">${escapeHtml(title)}</a>
+        <div class="url">${escapeHtml(row.url)}</div>
+        <div class="meta">${escapeHtml(row.received_at)} · ${
+      escapeHtml(row.id)
+    } · ${escapeHtml(row.principal)}</div>
+      </li>`;
+  }).join("\n");
+  const truncation = options.truncated
+    ? `<p class="note">Showing the newest ${rows.length} rows; older rows are not shown.</p>`
+    : "";
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(options.title)}</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 54rem; padding: 0 1rem; color: #1a1c1e; }
+    h1 { margin-bottom: .25rem; }
+    .note, .meta, .url { color: #5f6368; font-size: .9rem; }
+    ul { list-style: none; padding: 0; }
+    li { padding: .9rem 0; border-bottom: 1px solid #e0e3e7; }
+    a { color: #0d47a1; text-decoration: none; font-weight: 600; }
+    a:hover { text-decoration: underline; }
+    .url { overflow-wrap: anywhere; margin-top: .2rem; }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(options.title)}</h1>
+  <p class="note">${rows.length} link(s) · generated ${
+    escapeHtml(options.generatedAt)
+  } · ${escapeHtml(options.dbPath)}</p>
+  ${truncation}
+  <ul>
+${items}
+  </ul>
+</body>
+</html>
+`;
+}
+
+/** Render the current SQLite links table to a standalone HTML file. */
+async function executeRenderHtml(
+  args: RenderLinksArgs,
+  ctx: MethodContext,
+) {
+  const dbPath = args.dbPath.trim()
+    ? expandHome(args.dbPath.trim())
+    : resolveDbPath(ctx.globalArgs);
+  const outputPath = expandHome(
+    args.outputPath.trim() || "~/.swamp/news-pages/links.html",
+  );
+  const db = await openDatabase(dbPath);
+
+  try {
+    const rows = db.prepare(`
+      SELECT share_id AS id, url, title, text, principal, source, device,
+             shared_at, received_at
+      FROM links
+      ORDER BY received_at DESC
+      LIMIT ?
+    `).all(args.limit + 1).map((row) => LinkRowSchema.parse(row));
+    const truncated = rows.length > args.limit;
+    const links = truncated ? rows.slice(0, args.limit) : rows;
+    const generatedAt = new Date().toISOString();
+    const html = renderLinksHtml(links, {
+      title: args.title,
+      dbPath,
+      generatedAt,
+      truncated,
+    });
+
+    await Deno.mkdir(dirname(outputPath), { recursive: true });
+    const tmp = `${outputPath}.tmp-${crypto.randomUUID()}`;
+    await Deno.writeTextFile(tmp, html);
+    await Deno.rename(tmp, outputPath);
+    const record = {
+      path: outputPath,
+      count: links.length,
+      truncated,
+      dbPath,
+      generatedAt,
+    };
+    const handle = await ctx.writeResource(
+      "linksPage",
+      "linksPage",
+      record,
+    );
+    ctx.logger?.info("Rendered {count} links to {path}", {
+      count: links.length,
+      path: outputPath,
+    });
+    return { dataHandles: [handle] };
+  } finally {
+    db.close();
+  }
+}
+
 /**
  * Merge one webhook entry into a serve config's `webhooks` array by route.
  * Other entries and their order are preserved; a matching route is replaced
@@ -605,7 +760,7 @@ async function executeVerifyWebhook(
 /** LinkDrop SQLite receiver: durable storage for shared URLs. */
 export const model = {
   type: "@svendowideit/linkdrop",
-  version: "2026.10.27.6",
+  version: "2026.10.27.7",
   globalArguments: GlobalArgsSchema,
 
   upgrades: [
@@ -644,6 +799,13 @@ export const model = {
         "instance so setup cannot contend with the receiver's store lock.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
+    {
+      toVersion: "2026.10.27.7",
+      description:
+        "Add renderHtml to write the current SQLite table as a standalone " +
+        "news-pages HTML page.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
   ],
 
   resources: {
@@ -678,6 +840,12 @@ export const model = {
       lifetime: "infinite" as const,
       garbageCollection: 20,
     },
+    linksPage: {
+      description: "The rendered standalone HTML links page.",
+      schema: LinksPageSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
   },
 
   methods: {
@@ -707,10 +875,17 @@ export const model = {
     },
     verifyWebhook: {
       description:
-        "Read a running swamp serve's root JSON and fail unless the route is " +
-        "registered for the expected workflow.",
+        "POST a test share to the route, retrying while the restarted serve " +
+        "comes up, and fail unless the route accepts it.",
       arguments: ServeVerifyArgsSchema,
       execute: executeVerifyWebhook,
+    },
+    renderHtml: {
+      description:
+        "Render the current SQLite links table as a standalone HTML page " +
+        "(default ~/.swamp/news-pages/links.html).",
+      arguments: RenderLinksArgsSchema,
+      execute: executeRenderHtml,
     },
   },
 };

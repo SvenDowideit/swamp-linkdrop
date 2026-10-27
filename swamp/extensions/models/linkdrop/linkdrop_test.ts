@@ -2,10 +2,12 @@ import { assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { DatabaseSync } from "node:sqlite";
 
 import {
+  escapeHtml,
   expandHome,
   mergeWebhookEntry,
   model,
   openDatabase,
+  renderLinksHtml,
   resolveDbPath,
 } from "./linkdrop.ts";
 
@@ -385,6 +387,84 @@ Deno.test("openDatabase migrates a legacy id-only table", async () => {
     } finally {
       db.close();
     }
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("escapeHtml escapes text and attributes", () => {
+  assertEquals(
+    escapeHtml('<a href="x&y">\'</a>'),
+    "&lt;a href=&quot;x&amp;y&quot;&gt;&#39;&lt;/a&gt;",
+  );
+});
+
+Deno.test("renderLinksHtml writes a standalone escaped page", () => {
+  const html = renderLinksHtml([
+    {
+      id: "share-1",
+      url: "https://example.com/?a=1&b=2",
+      title: "<script>alert(1)</script>",
+      text: "",
+      principal: "p",
+      source: "android-share",
+      device: "",
+      shared_at: "",
+      received_at: "2026-10-27T09:00:00Z",
+    },
+  ], {
+    title: "Links & things",
+    dbPath: "/tmp/links.db",
+    generatedAt: "2026-10-27T09:01:00Z",
+    truncated: false,
+  });
+  assertEquals(html.includes("<title>Links &amp; things</title>"), true);
+  assertEquals(html.includes("&lt;script&gt;alert(1)&lt;/script&gt;"), true);
+  assertEquals(html.includes("https://example.com/?a=1&amp;b=2"), true);
+  assertEquals(html.includes("<script>alert(1)</script>"), false);
+});
+
+Deno.test("renderHtml writes links.html from the current table", async () => {
+  const dir = await Deno.makeTempDir({ prefix: "linkdrop-render-" });
+  const dbPath = `${dir}/links.db`;
+  const outputPath = `${dir}/links.html`;
+
+  try {
+    const written: Record<string, unknown>[] = [];
+    const ctx = {
+      globalArgs: { dbPath, swampBinPath: "swamp" },
+      writeResource: (
+        _spec: string,
+        name: string,
+        data: Record<string, unknown>,
+      ) => {
+        written.push(data);
+        return Promise.resolve({ name });
+      },
+    };
+    await model.methods.store.execute({
+      id: "share-1",
+      url: "https://example.com/one",
+      title: "One",
+      text: "",
+      principal: "p",
+      source: "android-share",
+      device: "",
+      sharedAt: "",
+      receivedAt: "",
+    }, ctx);
+    await model.methods.renderHtml.execute({
+      outputPath,
+      limit: 10,
+      title: "Test links",
+      dbPath: "",
+    }, ctx);
+
+    const html = await Deno.readTextFile(outputPath);
+    assertEquals(html.includes("https://example.com/one"), true);
+    assertEquals(html.includes("One"), true);
+    assertEquals(written[1].count, 1);
+    assertEquals(written[1].path, outputPath);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }

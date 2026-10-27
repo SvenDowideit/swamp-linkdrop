@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@svendowideit/linkdrop"
-version: "2026.10.27.6"
+version: "2026.10.27.7"
 description: >
   Durable SQLite inbox for URLs shared by the LinkDrop Android app.
 
@@ -8,21 +8,25 @@ description: >
 
     Receives the JSON body from the LinkDrop Android share app and stores each
     URL in a local SQLite database. The Android app only needs one endpoint;
-    this behavior is the durable inbox behind it, idempotent by share UUID, so
-    app retries do not create duplicate rows. It is independent of swamp data
-    retention and can be queried with any SQLite tool, while the bundled
+    this behavior is the durable inbox behind it, idempotent by share UUID +
+    URL, so app retries do not add duplicate rows and distinct URLs never
+    collapse. It is independent of swamp data retention and can be queried with
+    any SQLite tool, while the bundled
     `@svendowideit/linkdrop-setup` workflow registers the webhook in the existing
     `swamp serve` through the no-auth `@svendowideit/linkdrop-open` handler,
     restarts it, verifies the route with a test POST, then creates the Caddy
     DNS/TLS route. Test POSTs use `source=linkdrop-verify` and are not stored.
+    A bundled links-page workflow renders the current SQLite table to
+    `~/.swamp/news-pages/links.html`.
 
   INSTALL
 
       swamp extension pull @svendowideit/linkdrop
 
-    One pull installs the behavior and both bundled workflows:
-    `@svendowideit/linkdrop-setup` (webhook registration + Caddy DNS/TLS) and
-    `@svendowideit/capture-linkdrop` (webhook handler).
+    One pull installs the behavior and three bundled workflows:
+    `@svendowideit/linkdrop-setup` (webhook registration + Caddy DNS/TLS),
+    `@svendowideit/capture-linkdrop` (webhook handler), and
+    `@svendowideit/linkdrop-links-page` (SQLite to links.html).
 
   DEPENDENCIES
 
@@ -30,8 +34,9 @@ description: >
     `@svendowideit/caddy` and `@svendowideit/systemd-service` (both pulled
     automatically) and assumes a running systemd `swamp serve`. It registers the
     webhook in that serve's config, restarts the unit, and verifies the route.
-    The webhook uses the bundled no-auth handler, so there is no token, env,
-    vault, or app-side secret. Pulling the dependencies installs the types, not
+    The bundled links-page workflow renders the SQLite table to
+    `~/.swamp/news-pages/links.html`. The webhook uses the bundled no-auth
+    handler, so there is no token, env, vault, or app-side secret. Pulling the dependencies installs the types, not
     a configured Caddy model: create/configure one and pass
     `--input caddyModel=<its-name>` if it is not named `caddy`. The SQLite
     behavior itself has no runtime dependency.
@@ -79,14 +84,16 @@ description: >
   WHAT IT INSTALLS
 
     No services, cron triggers, or daemons. It writes a SQLite database and
-    swamp resources, and it adds `/hooks/linkdrop` to the existing `serve.yaml`
-    using the no-auth handler before restarting the existing systemd serve. It
-    ships two workflows:
-    `@svendowideit/linkdrop-setup` registers and verifies the webhook before
-    creating the Caddy route and DNS/TLS entry; `@svendowideit/capture-linkdrop`
-    is the workflow that webhook runs. It does not create a second serve.
+    swamp resources, adds `/hooks/linkdrop` to the existing `serve.yaml` using
+    the no-auth handler before restarting the existing systemd serve, and can
+    render the table to `~/.swamp/news-pages/links.html`. It ships three
+    workflows: `@svendowideit/linkdrop-setup` registers and verifies the webhook
+    before creating the Caddy route and DNS/TLS entry;
+    `@svendowideit/capture-linkdrop` is the workflow that webhook runs; and
+    `@svendowideit/linkdrop-links-page` writes the HTML page. It does not create
+    a second serve.
 
-repository: https://github.com/svendowideit/linkdrop
+repository: https://github.com/SvenDowideit/swamp-linkdrop
 
 license: MIT
 
@@ -102,6 +109,7 @@ webhooks:
 workflows:
   - linkdrop-setup.yaml
   - capture-linkdrop.yaml
+  - linkdrop-links-page.yaml
 
 
 dependencies:

@@ -7,8 +7,8 @@ Durable SQLite inbox for URLs shared by the LinkDrop Android app.
 The Android app posts one JSON object per shared URL to a `swamp serve`
 webhook. This behavior is the receiver behind that webhook: it validates the
 mapped fields, inserts the row into SQLite, and writes a swamp `link` resource.
-The insert is idempotent by the app's share UUID, so a retry after a lost HTTP
-response does not duplicate a row. The bundled `@svendowideit/linkdrop-setup`
+The insert is idempotent by the app's share UUID + URL, so a retry after a lost
+HTTP response does not duplicate a row, while distinct URLs never collapse. The bundled `@svendowideit/linkdrop-setup`
 workflow registers the route in the existing serve config, restarts and
 verifies the running serve, then creates the Caddy DNS record and TLS route for
 `linkdrop.<zone>`. The bundled `@svendowideit/capture-linkdrop` workflow is the
@@ -81,6 +81,9 @@ swamp workflow run @svendowideit/linkdrop-setup \
 swamp workflow run @svendowideit/capture-linkdrop \
   --input url="https://example.com/manual" \
   --input principal="test-principal"
+
+# Render the current table to ~/.swamp/news-pages/links.html.
+swamp workflow run @svendowideit/linkdrop-links-page
 ```
 
 ## Upgrade
@@ -99,7 +102,7 @@ place, preserving its rows.
 
 ### Behavior type
 
-`@svendowideit/linkdrop` exposes five methods:
+`@svendowideit/linkdrop` exposes six methods:
 
 | Method | Arguments | Output resource | Purpose |
 | ------ | --------- | --------------- | ------- |
@@ -108,6 +111,7 @@ place, preserving its rows.
 | `stats` | none | `stats` | Return the total row count and database path. |
 | `configureServe` | `serveRepo`, `serveConfig`, `route`, `workflow`, `validate` | `serveConfig` | Idempotently merge the webhook into the existing serve config; validate with `swamp serve check-config` unless `validate=false`. |
 | `verifyWebhook` | `url`, `route`, `workflow`, `timeoutMs`, `waitMs`, `intervalMs` | `serveVerify` | POST a test share with `source=linkdrop-verify`, retry for up to `waitMs` while the restarted serve comes up, and fail unless the route accepts it. The workflow skips storing verify shares. |
+| `renderHtml` | `outputPath` (default `~/.swamp/news-pages/links.html`), `limit` (default 500), `title`, `dbPath` (optional override) | `linksPage` | Render the current SQLite table as a standalone escaped HTML page, newest first. |
 
 ### SQLite schema
 
@@ -150,6 +154,13 @@ There is no webhook token or secret. `configureServe` writes the no-auth
 `secret: "unused"` that swamp serve requires in every route.
 
 ### Workflows
+
+`@svendowideit/linkdrop-links-page` runs `renderHtml` on a separate
+`linkdrop-render` model instance. It reads the same SQLite database as the
+receiver, so it can run while `linkdrop` is processing shares, and writes the
+newest rows to `~/.swamp/news-pages/links.html` (or `outputPath`). It accepts
+`limit`, `title`, and an optional `dbPath` override. The page is standalone,
+escaped HTML and reports whether older rows were truncated.
 
 The setup workflow's serve inputs are `serveRepo` (default `.`), `serveConfig`
 (default `.swamp/serve.yaml`), `serveService` (default `swamp-serve`),
@@ -205,8 +216,9 @@ the route at the network or Caddy layer if access control is needed.
 - `linkdrop.ts` — behavior, SQLite helpers, and method implementations.
 - `linkdrop_test.ts` — unit tests for path resolution, idempotent insertion,
   list truncation, stats, and URL rejection.
-- `linkdrop-setup.yaml` — bundled Caddy DNS/TLS workflow.
+- `linkdrop-setup.yaml` — bundled webhook registration + Caddy DNS/TLS workflow.
 - `capture-linkdrop.yaml` — bundled webhook receiver workflow.
+- `linkdrop-links-page.yaml` — render the SQLite table to `links.html`.
 - `serve.example.yaml` — webhook registration snippet.
 
 Run the tests with the swamp-bundled Deno:

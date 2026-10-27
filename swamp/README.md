@@ -6,6 +6,7 @@ SQLite, plus the workflows that expose and handle the webhook.
 - Behavior: `@svendowideit/linkdrop`
   (`extensions/models/linkdrop/`)
 - Webhook workflow: `@svendowideit/capture-linkdrop` (`workflows/workflow-capture-linkdrop.yaml`)
+- Links page: `@svendowideit/linkdrop-links-page` (`workflows/workflow-linkdrop-links-page.yaml`)
 - DNS/TLS workflow: `@svendowideit/linkdrop-setup` (`workflows/workflow-linkdrop-setup.yaml`)
 - Serve config: `serve.yaml`
 
@@ -24,6 +25,7 @@ SQLite, plus the workflows that expose and handle the webhook.
 ```sh
 # Replace linkdrop.fi.gy with your zone. The name must be under baseDomain.
 swamp workflow run @svendowideit/linkdrop-setup --input dnsName=linkdrop.fi.gy
+swamp workflow run @svendowideit/linkdrop-links-page
 ```
 
 The workflow first merges `/hooks/linkdrop` into the existing serve config,
@@ -83,6 +85,18 @@ A verified request runs `@svendowideit/capture-linkdrop`, which calls
 `@svendowideit/linkdrop store` and inserts one row into SQLite. The insert is
 idempotent by the app's share UUID.
 
+## Render the links page
+
+```sh
+# Read the current SQLite table and write the news page.
+swamp workflow run @svendowideit/linkdrop-links-page
+```
+
+The default output is `~/.swamp/news-pages/links.html`; pass
+`--input limit=100` or `--input outputPath=/path/to/links.html` to change it.
+The workflow uses a separate `linkdrop-render` model instance, so it can read
+the database while the receiver is storing new shares.
+
 ## Troubleshooting a 404
 
 Caddy adds `via: 1.1 Caddy` to proxied responses. A `404` with a plain body
@@ -133,11 +147,13 @@ The adversarial review report for the current extension content is stored in
 ./scripts/push-linkdrop.sh --dry-run   # check without publishing
 ```
 
-The extension version is `2026.10.27.6`; it bundles
-`@svendowideit/linkdrop-setup` and `@svendowideit/capture-linkdrop` and depends
-on `@svendowideit/caddy` and `@svendowideit/systemd-service`. After pushing, consumers run:
+The extension version is `2026.10.27.7`; it bundles
+`@svendowideit/linkdrop-setup`, `@svendowideit/capture-linkdrop`, and
+`@svendowideit/linkdrop-links-page`, and depends on `@svendowideit/caddy` and
+`@svendowideit/systemd-service`. After pushing, consumers run:
 
 ```sh
 swamp extension update @svendowideit/linkdrop
 swamp workflow run @svendowideit/linkdrop-setup --input dnsName=linkdrop.fi.gy
+swamp workflow run @svendowideit/linkdrop-links-page
 ```

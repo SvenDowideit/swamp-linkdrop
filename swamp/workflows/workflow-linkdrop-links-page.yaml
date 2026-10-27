@@ -1,0 +1,51 @@
+id: fc423151-194e-422f-881a-130deebf00b6
+name: "@svendowideit/linkdrop-links-page"
+description: >
+  Render the current LinkDrop SQLite links table as a standalone HTML page in
+  the news-pages directory. Uses a separate linkdrop-render model instance so it
+  can read the database while the receiver is storing new shares.
+tags:
+  linkdrop: "render"
+inputs:
+  properties:
+    outputPath:
+      type: string
+      default: "~/.swamp/news-pages/links.html"
+      description: HTML file to write.
+    limit:
+      type: integer
+      default: 500
+      description: Maximum number of rows to render, newest first.
+    title:
+      type: string
+      default: "LinkDrop links"
+      description: Page heading.
+    dbPath:
+      type: string
+      default: ""
+      description: >
+        Optional SQLite path override; empty uses the render model's default
+        ($SWAMP_HOME/linkdrop/links.db).
+  required: []
+jobs:
+  - name: render
+    description: Read the current links table and write the HTML page.
+    steps:
+      - name: links-page
+        description: Render the newest links to links.html.
+        task:
+          type: model_method
+          modelType: "@svendowideit/linkdrop"
+          modelName: linkdrop-render
+          methodName: renderHtml
+          inputs:
+            outputPath: "${{ inputs.outputPath }}"
+            limit: "${{ inputs.limit }}"
+            title: "${{ inputs.title }}"
+            dbPath: "${{ inputs.dbPath }}"
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1
