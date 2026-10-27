@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LinkDrop</string>
+    <string name="settings_title">LinkDrop</string>
+    <string name="settings_intro">Share a URL from any app. LinkDrop queues it locally and posts it to your receiver when the network is available.</string>
+    <string name="endpoint_label">Receiver URL</string>
+    <string name="endpoint_hint">https://linkdrop.example.com/hooks/linkdrop</string>
+    <string name="token_label">Webhook token (optional)</string>
+    <string name="token_hint">Sent as X-Webhook-Token</string>
+    <string name="save">Save</string>
+    <string name="test">Test</string>
+    <string name="retry_all">Retry all</string>
+    <string name="clear_sent">Clear sent</string>
+    <string name="queue_label">Queue</string>
+    <string name="queue_summary">Pending: %1$d · Failed: %2$d · Sent: %3$d</string>
+    <string name="queue_empty">Queue is empty.</string>
+    <string name="status_ready">Ready.</string>
+    <string name="status_testing">Testing receiver…</string>
+    <string name="status_saved">Saved.</string>
+    <string name="status_queue_failed">Could not queue the share.</string>
+    <string name="status_invalid_url">Enter a valid https:// URL.</string>
+    <string name="status_test_ok">Receiver replied HTTP %1$d.</string>
+    <string name="status_test_failed">Could not reach receiver: %1$s</string>
+    <string name="status_retry">Re-queued failed shares.</string>
+    <string name="status_cleared">Cleared sent shares.</string>
+    <string name="queued_toast">Queued</string>
+    <string name="no_url_toast">No URL found</string>
+    <string name="share_label">Share to LinkDrop</string>
+    <string name="share_short_label">LinkDrop</string>
+</resources>
