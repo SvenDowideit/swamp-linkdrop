@@ -1,0 +1,37 @@
+id: 441909dc-e0d0-46ad-afd7-0828528d0179
+name: "@svendowideit/delete-linkdrop"
+description: >
+  Delete the LinkDrop rows for one share UUID. The links page's "Mark as read"
+  button posts the UUID to the delete webhook; this workflow removes that share
+  from SQLite and writes a deletedLink resource.
+tags:
+  linkdrop: "webhook"
+trigger:
+  inputs:
+    id: '${{ has(webhook.body.id) ? webhook.body.id : "" }}'
+inputs:
+  properties:
+    id:
+      type: string
+      description: Share UUID whose stored rows should be deleted.
+  required:
+    - id
+jobs:
+  - name: delete
+    description: Delete the stored rows for the shared UUID.
+    steps:
+      - name: delete
+        description: Delete every row whose share_id matches the UUID.
+        task:
+          type: model_method
+          modelType: "@svendowideit/linkdrop"
+          modelName: linkdrop
+          methodName: delete
+          inputs:
+            id: "${{ inputs.id }}"
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1
